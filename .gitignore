@@ -1,0 +1,8 @@
+target/
+.env
+
+# local tooling, never part of the submission
+.claude/
+CLAUDE.md
+.idea/
+.vscode/

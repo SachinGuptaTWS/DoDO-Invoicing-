@@ -1,0 +1,15 @@
+[package]
+name = "harness"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Local stand-ins for external systems: the mock PSP and a webhook receiver."
+
+[dependencies]
+axum.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

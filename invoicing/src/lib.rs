@@ -1,0 +1,19 @@
+pub mod api_keys;
+pub mod app;
+pub mod auth;
+pub mod businesses;
+pub mod config;
+pub mod customers;
+pub mod error;
+pub mod events;
+pub mod extract;
+pub mod idempotency;
+pub mod invoices;
+pub mod pagination;
+pub mod payments;
+pub mod psp;
+pub mod reconciler;
+pub mod webhooks;
+pub mod workers;
+
+pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
