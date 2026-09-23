@@ -9,6 +9,7 @@ use crate::{
     auth::AuthenticatedBusiness,
     error::ApiError,
     extract::{ApiJson, ApiPath, ApiQuery},
+    input::text_field,
     pagination::{resolve_limit, Page},
 };
 
@@ -29,15 +30,11 @@ pub struct CreateCustomerRequest {
 
 impl CreateCustomerRequest {
     fn validated(self) -> Result<(String, String), ApiError> {
-        let name = self.name.trim().to_owned();
-        if name.is_empty() || name.chars().count() > 200 {
-            return Err(ApiError::validation("name", "name must be 1-200 characters"));
-        }
+        let name = text_field("name", &self.name, 200)?;
         // Deliverability is not our problem here (we never send email); this
         // only rejects values that are obviously not an address.
-        let email = self.email.trim().to_owned();
-        let plausible = email.len() <= 254
-            && !email.contains(char::is_whitespace)
+        let email = text_field("email", &self.email, 254)?;
+        let plausible = !email.contains(char::is_whitespace)
             && email.split_once('@').is_some_and(|(local, domain)| !local.is_empty() && domain.contains('.'));
         if !plausible {
             return Err(ApiError::validation("email", "email is not a valid address"));

@@ -58,6 +58,9 @@ impl FromRequestParts<AppState> for AdminAccess {
     }
 }
 
+/// The auth scheme is case-insensitive (RFC 7235), so `bearer` works too.
 fn bearer_token(headers: &HeaderMap) -> Option<&str> {
-    headers.get(AUTHORIZATION)?.to_str().ok()?.strip_prefix("Bearer ").map(str::trim).filter(|token| !token.is_empty())
+    let (scheme, token) = headers.get(AUTHORIZATION)?.to_str().ok()?.split_once(' ')?;
+    let token = token.trim();
+    (scheme.eq_ignore_ascii_case("bearer") && !token.is_empty()).then_some(token)
 }

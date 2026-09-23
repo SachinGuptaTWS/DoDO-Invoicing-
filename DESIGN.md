@@ -29,7 +29,7 @@ erDiagram
 | `invoice_line_items` | PK `(invoice_id, position)`; `CHECK (amount_cents = quantity * unit_amount_cents)` | PK |
 | `payment_attempts` | `status pending/succeeded/failed`, `amount_cents`, `psp_ref`, `failure_code`, `reconcile_after` | partial unique `(invoice_id) WHERE status='pending'` and `WHERE status='succeeded'`; `(reconcile_after) WHERE pending` |
 | `idempotency_keys` | PK `(business_id, key)`, `request_fingerprint`, `payment_attempt_id`, stored `response_status/body` | unique on `payment_attempt_id` |
-| `events` | `event_type`, `data jsonb`: the outbox and the reconciliation log | `(business_id, id)` |
+| `events` | `event_type`, `data jsonb`, `seq` (commit-ordered cursor): the outbox and the reconciliation log | unique `(business_id, seq)` |
 | `webhook_deliveries` | PK `(event_id, endpoint_id)`, status, `attempt_count`, `next_attempt_at`, last response/error | `(next_attempt_at) WHERE pending` |
 
 **Why this shape**
@@ -41,7 +41,7 @@ erDiagram
 **At 100x**
 - Partition `events` and `webhook_deliveries` by month with retention; TTL-purge `idempotency_keys`.
 - Feed a queue from the outbox instead of polling the table.
-- Serve lists from a read replica. The payment write path is a single-row CAS and isn't the bottleneck.
+- Serve lists from a read replica. The payment write path is a single-row CAS and isn't the bottleneck; the per-business event lock is, for a single very busy business.
 
 ## 2. Invoice state machine
 
@@ -105,7 +105,7 @@ If the PSP still has no record 30 s after the attempt was created, longer than a
   - `Dodo-Event-Id` lets receivers dedupe, since delivery is at-least-once.
 - **Retries.** Retry delays are 30 s, 2 m, 10 m, 30 m, 1 h, 2 h and 4 h, each ±10% jitter, for 8 attempts over about 7 h 42 m. Any non-2xx or transport error counts as a failure.
 - **Exhausted.** The row is marked `exhausted`, kept, and logged at error level. Disabling an endpoint marks its pending deliveries `cancelled`.
-- **Reconciliation.** `GET /v1/events?after=<last_event_id>` returns the log oldest-first, in the same body shape as the webhook. A business replays from its last checkpoint.
+- **Reconciliation.** `GET /v1/events?after=<last_event_id>` returns the log in the same body shape as the webhook, and a business replays from its last checkpoint. It is ordered by `seq`, not the UUIDv7 id: ids are taken before commit, so a late-committing transaction could otherwise land *behind* a checkpoint and be skipped forever. `events::record` locks the business row (`FOR NO KEY UPDATE`) until commit, so `seq` order is commit order.
 
 ## 5. API key model
 

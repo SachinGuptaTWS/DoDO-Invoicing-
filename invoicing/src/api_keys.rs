@@ -94,7 +94,7 @@ pub async fn revoke_api_key(
     let mut tx = state.db.begin().await?;
     // Serializes revocations within a business. Without it, two concurrent
     // requests could each see the other key as still active and revoke both.
-    sqlx::query("SELECT 1 FROM businesses WHERE id = $1 FOR UPDATE")
+    sqlx::query("SELECT 1 FROM businesses WHERE id = $1 FOR NO KEY UPDATE")
         .bind(business.business_id)
         .execute(&mut *tx)
         .await?;

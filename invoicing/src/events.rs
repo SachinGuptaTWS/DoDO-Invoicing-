@@ -54,6 +54,14 @@ pub async fn record(
     event_type: EventType,
     data: Value,
 ) -> Result<(), sqlx::Error> {
+    // Held until commit, so a business's events get `seq` in commit order.
+    // NO KEY UPDATE, not UPDATE: foreign-key checks on inserts that reference
+    // the business take KEY SHARE, and this must not block those.
+    sqlx::query("SELECT 1 FROM businesses WHERE id = $1 FOR NO KEY UPDATE")
+        .bind(business_id)
+        .execute(&mut *conn)
+        .await?;
+
     let event_id = Uuid::now_v7();
     sqlx::query("INSERT INTO events (id, business_id, event_type, data) VALUES ($1, $2, $3, $4)")
         .bind(event_id)
@@ -85,19 +93,33 @@ pub struct ListEventsParams {
 
 /// Oldest-first, unlike other lists: this endpoint is for tailing the log
 /// from a checkpoint ("give me everything after the last event I processed").
+/// Ordered by commit (`seq`), so no event can appear behind a checkpoint.
 pub async fn list_events(
     State(state): State<AppState>,
     business: AuthenticatedBusiness,
     ApiQuery(params): ApiQuery<ListEventsParams>,
 ) -> Result<Json<Page<Event>>, ApiError> {
     let limit = resolve_limit(params.limit)?;
+    // Typed explicitly: a bare `0` would make this i32, and decoding the
+    // bigint `seq` into i32 fails at runtime rather than compile time.
+    let after_seq: i64 = match params.after {
+        None => 0,
+        // An unknown cursor would otherwise return an empty page, which looks
+        // exactly like "you are caught up".
+        Some(event_id) => sqlx::query_scalar("SELECT seq FROM events WHERE id = $1 AND business_id = $2")
+            .bind(event_id)
+            .bind(business.business_id)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or_else(|| ApiError::validation("after", "after is not an event of this business"))?,
+    };
     let rows = sqlx::query_as::<_, Event>(
         "SELECT id, event_type, created_at, data FROM events
-         WHERE business_id = $1 AND ($2::uuid IS NULL OR id > $2)
-         ORDER BY id ASC LIMIT $3",
+         WHERE business_id = $1 AND seq > $2
+         ORDER BY seq LIMIT $3",
     )
     .bind(business.business_id)
-    .bind(params.after)
+    .bind(after_seq)
     .bind(limit + 1)
     .fetch_all(&state.db)
     .await?;

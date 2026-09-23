@@ -8,6 +8,7 @@ pub mod error;
 pub mod events;
 pub mod extract;
 pub mod idempotency;
+pub mod input;
 pub mod invoices;
 pub mod pagination;
 pub mod payments;

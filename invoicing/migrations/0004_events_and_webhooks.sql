@@ -13,15 +13,21 @@ CREATE INDEX webhook_endpoints_active_idx ON webhook_endpoints (business_id) WHE
 
 -- The event log is the transactional outbox and the reconciliation source:
 -- rows are written in the same transaction as the state change they describe.
+--
+-- `seq` is the feed cursor, not `id`. A UUIDv7 id is taken before commit, so
+-- a transaction that commits later can hold a smaller id than one a consumer
+-- already checkpointed past. `seq` is assigned while the business row is
+-- locked (see events.rs), which makes its order the commit order.
 CREATE TABLE events (
     id           uuid PRIMARY KEY,
     business_id  uuid        NOT NULL REFERENCES businesses (id),
+    seq          bigint      GENERATED ALWAYS AS IDENTITY,
     event_type   text        NOT NULL,
     data         jsonb       NOT NULL,
     created_at   timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX events_business_page_idx ON events (business_id, id);
+CREATE UNIQUE INDEX events_business_seq_idx ON events (business_id, seq);
 
 CREATE TABLE webhook_deliveries (
     event_id              uuid        NOT NULL REFERENCES events (id),

@@ -3,7 +3,7 @@
 
 use serde::Deserialize;
 
-use crate::error::ApiError;
+use crate::{error::ApiError, input::text_field};
 
 pub const MAX_LINE_ITEMS: usize = 100;
 /// $999,999.99, the largest single USD charge card processors generally
@@ -43,10 +43,7 @@ pub fn price(items: Vec<LineItemInput>) -> Result<PricedInvoice, ApiError> {
     for (index, item) in items.into_iter().enumerate() {
         let field = |name: &str| format!("line_items[{index}].{name}");
 
-        let description = item.description.trim().to_owned();
-        if description.is_empty() || description.chars().count() > 500 {
-            return Err(ApiError::validation(&field("description"), "description must be 1-500 characters"));
-        }
+        let description = text_field(&field("description"), &item.description, 500)?;
         if item.quantity <= 0 {
             return Err(ApiError::validation(&field("quantity"), "quantity must be a positive integer"));
         }

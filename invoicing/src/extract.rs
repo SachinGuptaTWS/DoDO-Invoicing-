@@ -28,7 +28,9 @@ impl From<JsonRejection> for ApiError {
             JsonRejection::JsonDataError(err) => {
                 ApiError::new(axum::http::StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", err.body_text())
             }
-            other => ApiError::invalid_request(other.body_text()),
+            // Keep axum's status: 400 for bad syntax, 413 for too large, 415
+            // for a missing `Content-Type: application/json`.
+            other => ApiError::new(other.status(), "invalid_request", other.body_text()),
         }
     }
 }

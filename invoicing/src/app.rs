@@ -34,10 +34,10 @@ impl AppState {
     }
 }
 
-/// Request bodies here are small JSON documents; 64 KiB comfortably fits a
-/// 100-line-item invoice and bounds what an unauthenticated caller can make
-/// us buffer.
-const MAX_BODY_BYTES: usize = 64 * 1024;
+/// The largest valid body is an invoice with 100 line items of 500-character
+/// descriptions. JSON may escape a character as a 12-byte surrogate pair
+/// (`\uD83D\uDE00`), so that is ~600 KB; 1 MiB covers it with room to spare.
+const MAX_BODY_BYTES: usize = 1024 * 1024;
 
 pub fn router(state: AppState) -> Router {
     let request_id = HeaderName::from_static("x-request-id");

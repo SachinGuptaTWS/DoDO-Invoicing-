@@ -10,6 +10,7 @@ use crate::{
     auth::AdminAccess,
     error::ApiError,
     extract::ApiJson,
+    input::text_field,
 };
 
 #[derive(Deserialize)]
@@ -39,17 +40,14 @@ pub async fn create_business(
     _admin: AdminAccess,
     ApiJson(request): ApiJson<CreateBusinessRequest>,
 ) -> Result<(StatusCode, Json<CreatedBusiness>), ApiError> {
-    let name = request.name.trim();
-    if name.is_empty() || name.chars().count() > 200 {
-        return Err(ApiError::validation("name", "name must be 1-200 characters"));
-    }
+    let name = text_field("name", &request.name, 200)?;
 
     let mut tx = state.db.begin().await?;
     let business = sqlx::query_as::<_, Business>(
         "INSERT INTO businesses (id, name) VALUES ($1, $2) RETURNING id, name, created_at",
     )
     .bind(Uuid::now_v7())
-    .bind(name)
+    .bind(&name)
     .fetch_one(&mut *tx)
     .await?;
     let api_key = api_keys::issue(&mut tx, business.id).await?;
