@@ -63,9 +63,7 @@ pub fn router(state: AppState) -> Router {
         // Both keep the error envelope for requests no handler matches; axum's
         // own 404/405 have an empty body.
         .fallback(|| async { ApiError::not_found("route") })
-        .method_not_allowed_fallback(|| async {
-            ApiError::new(StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed", "Method not allowed on this route")
-        })
+        .method_not_allowed_fallback(method_not_allowed)
         // Innermost, so a panic still becomes a JSON 500 that the trace layer
         // logs, instead of a dropped connection.
         .layer(CatchPanicLayer::custom(panic_response))
@@ -93,9 +91,14 @@ pub fn router(state: AppState) -> Router {
                 .layer(PropagateRequestIdLayer::new(request_id)),
         )
         // Added after the layers so it is not traced: Docker probes it every
-        // few seconds, which would bury the request log.
-        .route("/healthz", get(health))
+        // few seconds, which would bury the request log. Being added after
+        // `method_not_allowed_fallback`, it needs its own.
+        .route("/healthz", get(health).fallback(method_not_allowed))
         .with_state(state)
+}
+
+async fn method_not_allowed() -> ApiError {
+    ApiError::new(StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed", "Method not allowed on this route")
 }
 
 /// The panic message itself is already printed by the default panic hook.

@@ -5,8 +5,9 @@ use crate::error::ApiError;
 const DEFAULT_LIMIT: u32 = 20;
 const MAX_LIMIT: u32 = 100;
 
-/// Lists are keyset-paginated on the UUIDv7 id (newest first), so paging is
-/// stable under concurrent inserts and costs an index seek, not an OFFSET scan.
+/// Lists are keyset-paginated (newest first by UUIDv7 id; the event feed
+/// oldest first by `seq`), so paging costs an index seek, not an OFFSET scan.
+/// Every list takes the same `limit` rules.
 pub fn resolve_limit(requested: Option<u32>) -> Result<i64, ApiError> {
     match requested.unwrap_or(DEFAULT_LIMIT) {
         limit @ 1..=MAX_LIMIT => Ok(i64::from(limit)),

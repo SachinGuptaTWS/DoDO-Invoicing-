@@ -46,3 +46,6 @@ CREATE TABLE webhook_deliveries (
 );
 
 CREATE INDEX webhook_deliveries_due_idx ON webhook_deliveries (next_attempt_at) WHERE status = 'pending';
+-- Disabling an endpoint cancels its pending deliveries; without this that
+-- is a scan of the largest table in the schema.
+CREATE INDEX webhook_deliveries_endpoint_idx ON webhook_deliveries (endpoint_id) WHERE status = 'pending';

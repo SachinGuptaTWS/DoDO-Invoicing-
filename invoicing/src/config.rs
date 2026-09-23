@@ -41,6 +41,17 @@ impl Config {
         if self.admin_token.len() < 16 {
             bail!("ADMIN_TOKEN must be at least 16 characters");
         }
+        // Zero is never meant: a zero poll interval turns both workers into a
+        // tight loop against Postgres, and a zero timeout fails every call.
+        for (name, value) in [
+            ("PSP_TIMEOUT_MS", self.psp_timeout),
+            ("WEBHOOK_TIMEOUT_MS", self.webhook_timeout),
+            ("WORKER_POLL_INTERVAL_MS", self.worker_poll_interval),
+        ] {
+            if value.is_zero() {
+                bail!("{name} must be greater than zero");
+            }
+        }
         if self.psp_not_found_grace <= self.psp_timeout {
             bail!("PSP_NOT_FOUND_GRACE_MS must be greater than PSP_TIMEOUT_MS");
         }

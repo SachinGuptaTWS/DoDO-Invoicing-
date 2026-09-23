@@ -50,6 +50,9 @@ async fn bad_input_is_a_client_error(opts: PgPoolOptions, conn: PgConnectOptions
     assert_eq!(wrong_method.status(), StatusCode::METHOD_NOT_ALLOWED);
     let body: serde_json::Value = wrong_method.json().await.unwrap();
     assert_eq!(body["error"]["code"], "method_not_allowed", "405 must use the error envelope too");
+    let health = app.http.post(format!("{}/healthz", app.base_url)).send().await.unwrap();
+    assert_eq!(health.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert!(health.json::<serde_json::Value>().await.unwrap()["error"].is_object());
 
     let lowercase_scheme = app
         .http
