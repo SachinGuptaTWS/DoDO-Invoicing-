@@ -23,7 +23,7 @@ const BATCH_SIZE: usize = 16;
 /// While a worker holds an attempt, other workers skip it. The batch is
 /// checked concurrently, so this only has to cover one PSP lookup plus a
 /// settle. If the worker dies, the lease runs out and the attempt comes back.
-const LEASE: Duration = Duration::from_secs(30);
+pub const LEASE: Duration = Duration::from_secs(30);
 const MAX_BACKOFF: Duration = Duration::from_secs(60);
 /// With the 60 s cap this is about half an hour without an answer from the
 /// PSP. We keep checking after that, but log at error level so a person

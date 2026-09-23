@@ -112,7 +112,7 @@ If the PSP still has no record 30 s after the attempt was created, longer than a
 - **Generation:** `sk_` plus base64url of 32 bytes from the OS CSPRNG.
 - **Storage:** only the SHA-256 of the key. A slow hash buys nothing against 256 random bits, and hashing lets us look the key up by its hash, so no secret-dependent comparison runs in our code. The first 11 characters are kept as a `display_prefix` for dashboards and leak scanners.
 - **Transmission:** `Authorization: Bearer`. The plaintext is returned exactly once, at creation.
-- **Rotation:** several keys can be live; create, deploy, revoke the old one.
+- **Rotation:** several keys can be live; create, deploy, revoke the old one. Revoking the last active key is refused (`409 last_active_key`), since only an operator could issue a new one.
 - **Revocation:** immediate (auth reads `revoked_at` on every request, no cache). Unknown and revoked keys get the same 401.
 - **Bootstrap:** businesses are created through an operator-only `POST /v1/admin/businesses` behind `ADMIN_TOKEN`, which returns the first key.
 - **Blast radius if leaked:** everything in one business, including registering a webhook to receive all future events and minting keys for persistence. No other tenant. Scoped keys are the fix (§6).

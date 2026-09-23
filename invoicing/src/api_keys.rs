@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use rand::{rngs::OsRng, RngCore};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use sqlx::{FromRow, PgConnection, PgPool};
+use sqlx::{FromRow, PgConnection};
 use uuid::Uuid;
 
 use crate::{app::AppState, auth::AuthenticatedBusiness, error::ApiError, extract::ApiPath};
@@ -82,25 +82,58 @@ pub async fn list_api_keys(
 
 /// Revocation is immediate: authentication reads `revoked_at` on every
 /// request, there is no cache to invalidate. Revoking twice is a no-op.
+///
+/// The last active key cannot be revoked. Only an operator can create a
+/// business's first key, so without this a business could lock itself out
+/// for good. Rotation is: issue a new key, deploy it, revoke the old one.
 pub async fn revoke_api_key(
     State(state): State<AppState>,
     business: AuthenticatedBusiness,
     ApiPath(api_key_id): ApiPath<Uuid>,
 ) -> Result<Json<ApiKey>, ApiError> {
-    let key =
-        revoke(&state.db, business.business_id, api_key_id).await?.ok_or_else(|| ApiError::not_found("api key"))?;
-    tracing::info!(business_id = %business.business_id, %api_key_id, "api key revoked");
-    Ok(Json(key))
-}
+    let mut tx = state.db.begin().await?;
+    // Serializes revocations within a business. Without it, two concurrent
+    // requests could each see the other key as still active and revoke both.
+    sqlx::query("SELECT 1 FROM businesses WHERE id = $1 FOR UPDATE")
+        .bind(business.business_id)
+        .execute(&mut *tx)
+        .await?;
 
-async fn revoke(db: &PgPool, business_id: Uuid, api_key_id: Uuid) -> Result<Option<ApiKey>, sqlx::Error> {
-    sqlx::query_as::<_, ApiKey>(
-        "UPDATE api_keys SET revoked_at = COALESCE(revoked_at, now())
-         WHERE id = $1 AND business_id = $2
+    let key = sqlx::query_as::<_, ApiKey>(
+        "SELECT id, display_prefix, created_at, revoked_at FROM api_keys WHERE id = $1 AND business_id = $2",
+    )
+    .bind(api_key_id)
+    .bind(business.business_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| ApiError::not_found("api key"))?;
+    if key.revoked_at.is_some() {
+        return Ok(Json(key));
+    }
+
+    let another_active: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM api_keys WHERE business_id = $1 AND id <> $2 AND revoked_at IS NULL)",
+    )
+    .bind(business.business_id)
+    .bind(api_key_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if !another_active {
+        return Err(ApiError::conflict(
+            "last_active_key",
+            "This is the only active API key; issue a new one before revoking it",
+        ));
+    }
+
+    let key = sqlx::query_as::<_, ApiKey>(
+        "UPDATE api_keys SET revoked_at = now() WHERE id = $1
          RETURNING id, display_prefix, created_at, revoked_at",
     )
     .bind(api_key_id)
-    .bind(business_id)
-    .fetch_optional(db)
-    .await
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    tracing::info!(business_id = %business.business_id, %api_key_id, "api key revoked");
+    Ok(Json(key))
 }

@@ -115,7 +115,7 @@ paths:
       operationId: revokeApiKey
       tags: [API keys]
       summary: Revoke an API key
-      description: Takes effect on the next request. Revoking an already-revoked key is a no-op.
+      description: Takes effect on the next request. Revoking an already-revoked key is a no-op. The last active key cannot be revoked (`409 last_active_key`); issue a new key first.
       parameters:
         - $ref: "#/components/parameters/Id"
       responses:
@@ -126,6 +126,11 @@ paths:
               schema: { $ref: "#/components/schemas/ApiKey" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: "`last_active_key`: this is the business's only active key"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /v1/customers:
     post:

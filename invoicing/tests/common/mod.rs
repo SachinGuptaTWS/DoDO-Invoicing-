@@ -114,6 +114,10 @@ impl TestApp {
         self.send(self.http.post(format!("{}{path}", self.base_url)).json(&body)).await
     }
 
+    pub async fn delete(&self, path: &str) -> ApiResponse {
+        self.send(self.http.delete(format!("{}{path}", self.base_url))).await
+    }
+
     pub async fn get(&self, path: &str) -> ApiResponse {
         self.send(self.http.get(format!("{}{path}", self.base_url))).await
     }

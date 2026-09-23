@@ -2,6 +2,8 @@ use std::{env, net::SocketAddr, time::Duration};
 
 use anyhow::{bail, Context};
 
+use crate::{reconciler, webhooks::dispatcher};
+
 /// Runtime configuration. Deliberately not `Debug`: it holds the admin token.
 pub struct Config {
     pub database_url: String,
@@ -41,6 +43,14 @@ impl Config {
         }
         if self.psp_not_found_grace <= self.psp_timeout {
             bail!("PSP_NOT_FOUND_GRACE_MS must be greater than PSP_TIMEOUT_MS");
+        }
+        // A worker's lease on a row has to outlast the HTTP call it makes
+        // while holding it, or another worker picks the row up mid-call.
+        if self.psp_timeout >= reconciler::LEASE {
+            bail!("PSP_TIMEOUT_MS must be less than {} ms", reconciler::LEASE.as_millis());
+        }
+        if self.webhook_timeout >= dispatcher::LEASE {
+            bail!("WEBHOOK_TIMEOUT_MS must be less than {} ms", dispatcher::LEASE.as_millis());
         }
         Ok(())
     }

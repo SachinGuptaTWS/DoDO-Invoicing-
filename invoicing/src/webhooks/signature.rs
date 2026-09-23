@@ -32,7 +32,9 @@ pub fn verify(secret: &str, header: &str, body: &[u8], now: i64, tolerance_secs:
         }
     }
     let Some(timestamp) = timestamp else { return false };
-    if (now - timestamp).abs() > tolerance_secs {
+    // `abs_diff` rather than `(now - t).abs()`: `t` comes from the header,
+    // and a value like i64::MIN would overflow the subtraction.
+    if now.abs_diff(timestamp) > tolerance_secs.unsigned_abs() {
         return false;
     }
     // `verify_slice` is constant-time. Several v1 values are allowed so a
@@ -67,6 +69,12 @@ mod tests {
         assert!(!verify(SECRET, &header, br#"{"id":"evt_2"}"#, 1_700_000_000, 300));
         assert!(!verify("whsec_other", &header, BODY, 1_700_000_000, 300));
         assert!(!verify(SECRET, &header, BODY, 1_700_000_000 + 301, 300));
+    }
+
+    #[test]
+    fn extreme_timestamps_are_rejected_without_overflow() {
+        let header = format!("t={},v1=00", i64::MIN);
+        assert!(!verify(SECRET, &header, BODY, 1_700_000_000, RECOMMENDED_TOLERANCE_SECS));
     }
 
     #[test]

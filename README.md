@@ -164,6 +164,8 @@ docker run --rm --network invoicing-test -v "$PWD":/src -w /src \
   -e DATABASE_URL=postgres://postgres:postgres@invoicing-test-db/postgres rust:1.89 cargo test
 ```
 
+In Git Bash on Windows, prefix the last command with `MSYS_NO_PATHCONV=1` and use `"$(pwd -W)"` in place of `"$PWD"`.
+
 The three tests the assignment requires, none skipped:
 
 | Requirement | Test |
@@ -172,7 +174,7 @@ The three tests the assignment requires, none skipped:
 | Same key retried: same response, no second PSP call | `invoicing/tests/payments_idempotency.rs`, which also covers declined replays, key reuse with a different body, and paying a paid invoice |
 | PSP failure leaves no stuck invoice | `invoicing/tests/payments_psp_failures.rs`: `tok_timeout` returns `202` in under 1 s and settles to `paid`; `tok_network_error` settles back to `open` and can be paid again |
 
-`invoicing/tests/webhooks.rs` verifies webhook signatures and retry scheduling. The PSP-failure tests shorten the mock's 30 s delay to 2 s, so they take seconds rather than minutes; the code path is the same.
+`invoicing/tests/webhooks.rs` verifies webhook signatures and retry scheduling, and `invoicing/tests/api_keys.rs` covers key rotation and revocation. The PSP-failure tests shorten the mock's 30 s delay to 2 s, so they take seconds rather than minutes; the code path is the same.
 
 ## Configuration
 
@@ -182,9 +184,9 @@ The three tests the assignment requires, none skipped:
 | `ADMIN_TOKEN` | required | At least 16 characters. Guards `/v1/admin/*`. |
 | `PSP_BASE_URL` | required | |
 | `BIND_ADDR` | `0.0.0.0:8080` | |
-| `PSP_TIMEOUT_MS` | `3000` | How long `/pay` waits for the PSP before answering `202` |
+| `PSP_TIMEOUT_MS` | `3000` | How long `/pay` waits for the PSP before answering `202`. Must be under 30000. |
 | `PSP_NOT_FOUND_GRACE_MS` | `30000` | How long the PSP may have no record of an attempt before it is failed. Must be greater than `PSP_TIMEOUT_MS`. |
-| `WEBHOOK_TIMEOUT_MS` | `10000` | Per delivery attempt |
+| `WEBHOOK_TIMEOUT_MS` | `10000` | Per delivery attempt. Must be under 60000. |
 | `WORKER_POLL_INTERVAL_MS` | `500` | Reconciler and webhook dispatcher poll interval |
 | `RUST_LOG` | `info,sqlx=warn` | |
 

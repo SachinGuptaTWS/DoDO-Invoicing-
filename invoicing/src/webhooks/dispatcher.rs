@@ -33,8 +33,8 @@ pub const RETRY_SCHEDULE: [Duration; 7] = [
 pub const MAX_ATTEMPTS: i32 = RETRY_SCHEDULE.len() as i32 + 1;
 
 const BATCH_SIZE: usize = 32;
-/// Must comfortably exceed the per-request webhook timeout.
-const LEASE: Duration = Duration::from_secs(60);
+/// Must exceed the per-request webhook timeout; `Config::validate` checks it.
+pub const LEASE: Duration = Duration::from_secs(60);
 const MAX_ERROR_LEN: usize = 500;
 
 pub async fn run(db: PgPool, http: reqwest::Client, poll_interval: Duration, shutdown: CancellationToken) {
