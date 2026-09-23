@@ -55,8 +55,10 @@ pub async fn record(
     data: Value,
 ) -> Result<(), sqlx::Error> {
     // Held until commit, so a business's events get `seq` in commit order.
-    // NO KEY UPDATE, not UPDATE: foreign-key checks on inserts that reference
-    // the business take KEY SHARE, and this must not block those.
+    // NO KEY UPDATE, not UPDATE: the caller has usually already inserted a row
+    // referencing the business, and that FK check holds KEY SHARE. UPDATE
+    // conflicts with KEY SHARE, so two such transactions would each wait for
+    // the other to release it: a deadlock. NO KEY UPDATE does not conflict.
     sqlx::query("SELECT 1 FROM businesses WHERE id = $1 FOR NO KEY UPDATE")
         .bind(business_id)
         .execute(&mut *conn)
