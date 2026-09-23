@@ -8,7 +8,7 @@ A small invoicing backend: businesses create customers and invoices, customers p
 
 ## Demo Video
 
-_Link goes here._
+https://drive.google.com/file/d/1g9pG71lfdFJV0Myp8Pim7BdB0UXxf9Ut/view?usp=sharing
 
 ## Running it
 
