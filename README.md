@@ -10,6 +10,12 @@ A small invoicing backend: businesses create customers and invoices, customers p
 
 https://drive.google.com/file/d/1g9pG71lfdFJV0Myp8Pim7BdB0UXxf9Ut/view?usp=sharing
 
+## Time spent
+
+Roughly 6 to 10 hours in total, which is over the 4 to 6 hour budget. Most of the time past the budget went on reviewing edge cases, the Docker setup, the docs, and testing the full flow by hand. How I used AI is in [AI_USAGE.md](AI_USAGE.md).
+
+What I would build next, and what is missing before production, is in DESIGN.md §6 and §7.
+
 ## Running it
 
 ```bash
