@@ -88,14 +88,16 @@ pub async fn apply_transition(
     })
 }
 
-pub async fn find(conn: &mut PgConnection, business_id: Uuid, invoice_id: Uuid) -> Result<Option<Invoice>, sqlx::Error> {
-    sqlx::query_as::<_, Invoice>(&format!(
-        "SELECT {INVOICE_COLUMNS} FROM invoices WHERE id = $1 AND business_id = $2"
-    ))
-    .bind(invoice_id)
-    .bind(business_id)
-    .fetch_optional(conn)
-    .await
+pub async fn find(
+    conn: &mut PgConnection,
+    business_id: Uuid,
+    invoice_id: Uuid,
+) -> Result<Option<Invoice>, sqlx::Error> {
+    sqlx::query_as::<_, Invoice>(&format!("SELECT {INVOICE_COLUMNS} FROM invoices WHERE id = $1 AND business_id = $2"))
+        .bind(invoice_id)
+        .bind(business_id)
+        .fetch_optional(conn)
+        .await
 }
 
 pub async fn load_detail(

@@ -87,9 +87,8 @@ pub async fn revoke_api_key(
     business: AuthenticatedBusiness,
     ApiPath(api_key_id): ApiPath<Uuid>,
 ) -> Result<Json<ApiKey>, ApiError> {
-    let key = revoke(&state.db, business.business_id, api_key_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("api key"))?;
+    let key =
+        revoke(&state.db, business.business_id, api_key_id).await?.ok_or_else(|| ApiError::not_found("api key"))?;
     tracing::info!(business_id = %business.business_id, %api_key_id, "api key revoked");
     Ok(Json(key))
 }

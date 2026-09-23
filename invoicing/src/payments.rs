@@ -41,8 +41,7 @@ use crate::{
     psp::{ChargeResult, Settlement},
 };
 
-const ATTEMPT_COLUMNS: &str =
-    "id, invoice_id, status, amount_cents, psp_ref, failure_code, created_at, settled_at";
+const ATTEMPT_COLUMNS: &str = "id, invoice_id, status, amount_cents, psp_ref, failure_code, created_at, settled_at";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -78,7 +77,10 @@ pub struct PaymentAttempt {
     pub settled_at: Option<DateTime<Utc>>,
 }
 
-pub async fn attempts_for_invoice(conn: &mut PgConnection, invoice_id: Uuid) -> Result<Vec<PaymentAttempt>, sqlx::Error> {
+pub async fn attempts_for_invoice(
+    conn: &mut PgConnection,
+    invoice_id: Uuid,
+) -> Result<Vec<PaymentAttempt>, sqlx::Error> {
     sqlx::query_as::<_, PaymentAttempt>(&format!(
         "SELECT {ATTEMPT_COLUMNS} FROM payment_attempts WHERE invoice_id = $1 ORDER BY id"
     ))
@@ -160,7 +162,9 @@ enum Claim {
     /// get the same answer.
     Rejected(StoredResponse),
     Replay(StoredResponse),
-    AwaitingSettlement { payment_attempt_id: Uuid },
+    AwaitingSettlement {
+        payment_attempt_id: Uuid,
+    },
 }
 
 async fn claim_invoice(
@@ -235,20 +239,12 @@ pub async fn settle_attempt(
     let mut tx = db.begin().await?;
 
     let (status, psp_ref, failure_code, transition, event_type) = match &settlement {
-        Settlement::Succeeded { psp_ref } => (
-            "succeeded",
-            Some(psp_ref.as_str()),
-            None,
-            InvoiceTransition::PaymentSucceeded,
-            EventType::InvoicePaid,
-        ),
-        Settlement::Failed { code } => (
-            "failed",
-            None,
-            Some(code.as_str()),
-            InvoiceTransition::PaymentFailed,
-            EventType::InvoicePaymentFailed,
-        ),
+        Settlement::Succeeded { psp_ref } => {
+            ("succeeded", Some(psp_ref.as_str()), None, InvoiceTransition::PaymentSucceeded, EventType::InvoicePaid)
+        }
+        Settlement::Failed { code } => {
+            ("failed", None, Some(code.as_str()), InvoiceTransition::PaymentFailed, EventType::InvoicePaymentFailed)
+        }
     };
 
     let settled: Option<(Uuid, Uuid)> = sqlx::query_as(
@@ -298,12 +294,10 @@ pub async fn settle_attempt(
 
 async fn already_attempt_response(db: &PgPool, payment_attempt_id: Uuid) -> Result<StoredResponse, ApiError> {
     let mut conn = db.acquire().await?;
-    idempotency::response_for_attempt(&mut conn, payment_attempt_id)
-        .await?
-        .ok_or_else(|| {
-            tracing::error!(%payment_attempt_id, "settled attempt has no stored response");
-            ApiError::internal()
-        })
+    idempotency::response_for_attempt(&mut conn, payment_attempt_id).await?.ok_or_else(|| {
+        tracing::error!(%payment_attempt_id, "settled attempt has no stored response");
+        ApiError::internal()
+    })
 }
 
 fn attempt_response(invoice: &Invoice, attempt: &PaymentAttempt) -> StoredResponse {
@@ -312,7 +306,8 @@ fn attempt_response(invoice: &Invoice, attempt: &PaymentAttempt) -> StoredRespon
         PaymentAttemptStatus::Succeeded => StoredResponse { status: StatusCode::OK, body: resources },
         PaymentAttemptStatus::Failed => {
             let code = attempt.failure_code.as_deref().unwrap_or("payment_failed");
-            let error = ApiError::new(StatusCode::PAYMENT_REQUIRED, code, failure_message(code)).with_details(resources);
+            let error =
+                ApiError::new(StatusCode::PAYMENT_REQUIRED, code, failure_message(code)).with_details(resources);
             StoredResponse::from_error(&error)
         }
         PaymentAttemptStatus::Pending => StoredResponse { status: StatusCode::ACCEPTED, body: resources },

@@ -49,7 +49,12 @@ impl WebhookSink {
     }
 }
 
-async fn receive(State(sink): State<WebhookSink>, Path(hook): Path<String>, headers: HeaderMap, body: Bytes) -> StatusCode {
+async fn receive(
+    State(sink): State<WebhookSink>,
+    Path(hook): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> StatusCode {
     let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok()).map(str::to_owned);
     let status = if hook == "fail" { StatusCode::SERVICE_UNAVAILABLE } else { StatusCode::OK };
     let received = ReceivedWebhook {

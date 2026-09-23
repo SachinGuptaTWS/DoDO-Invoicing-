@@ -49,10 +49,8 @@ pub struct PspClient {
 
 impl PspClient {
     pub fn new(base_url: &str, timeout: Duration) -> anyhow::Result<Self> {
-        let http = reqwest::Client::builder()
-            .timeout(timeout)
-            .connect_timeout(timeout.min(Duration::from_secs(1)))
-            .build()?;
+        let http =
+            reqwest::Client::builder().timeout(timeout).connect_timeout(timeout.min(Duration::from_secs(1))).build()?;
         Ok(Self { http, base_url: base_url.trim_end_matches('/').to_owned() })
     }
 

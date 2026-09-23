@@ -126,7 +126,9 @@ async fn deliver(http: &reqwest::Client, delivery: &LeasedDelivery) -> DeliveryR
         .await;
 
     match response {
-        Ok(response) if response.status().is_success() => DeliveryResult::Delivered { status: response.status().as_u16() },
+        Ok(response) if response.status().is_success() => {
+            DeliveryResult::Delivered { status: response.status().as_u16() }
+        }
         Ok(response) => DeliveryResult::Failed {
             status: Some(response.status().as_u16()),
             error: format!("endpoint responded with HTTP {}", response.status()),

@@ -35,10 +35,7 @@ pub struct PricedInvoice {
 
 pub fn price(items: Vec<LineItemInput>) -> Result<PricedInvoice, ApiError> {
     if items.is_empty() || items.len() > MAX_LINE_ITEMS {
-        return Err(ApiError::validation(
-            "line_items",
-            format!("an invoice needs 1-{MAX_LINE_ITEMS} line items"),
-        ));
+        return Err(ApiError::validation("line_items", format!("an invoice needs 1-{MAX_LINE_ITEMS} line items")));
     }
 
     let mut total_cents: i64 = 0;

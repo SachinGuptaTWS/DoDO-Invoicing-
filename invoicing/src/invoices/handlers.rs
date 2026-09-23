@@ -54,9 +54,7 @@ pub async fn create_invoice(
 
     let invoice_id = Uuid::now_v7();
     insert_invoice(&mut tx, business.business_id, request.customer_id, invoice_id, request.due_date, &priced).await?;
-    let detail = load_detail(&mut tx, business.business_id, invoice_id)
-        .await?
-        .ok_or_else(ApiError::internal)?;
+    let detail = load_detail(&mut tx, business.business_id, invoice_id).await?.ok_or_else(ApiError::internal)?;
     events::record(&mut tx, business.business_id, EventType::InvoiceCreated, json!({ "invoice": detail })).await?;
     tx.commit().await?;
 
@@ -162,9 +160,7 @@ pub async fn void_invoice(
         TransitionOutcome::Rejected(current) => return Err(transition.rejection(current)),
         TransitionOutcome::NotFound => return Err(ApiError::not_found("invoice")),
     }
-    let detail = load_detail(&mut tx, business.business_id, invoice_id)
-        .await?
-        .ok_or_else(ApiError::internal)?;
+    let detail = load_detail(&mut tx, business.business_id, invoice_id).await?.ok_or_else(ApiError::internal)?;
     events::record(&mut tx, business.business_id, EventType::InvoiceVoided, json!({ "invoice": detail })).await?;
     tx.commit().await?;
 

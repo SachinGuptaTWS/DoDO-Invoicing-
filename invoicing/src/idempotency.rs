@@ -213,12 +213,11 @@ pub async fn response_for_attempt(
     conn: &mut PgConnection,
     payment_attempt_id: Uuid,
 ) -> Result<Option<StoredResponse>, sqlx::Error> {
-    let row: Option<(Option<i16>, Option<Value>)> = sqlx::query_as(
-        "SELECT response_status, response_body FROM idempotency_keys WHERE payment_attempt_id = $1",
-    )
-    .bind(payment_attempt_id)
-    .fetch_optional(conn)
-    .await?;
+    let row: Option<(Option<i16>, Option<Value>)> =
+        sqlx::query_as("SELECT response_status, response_body FROM idempotency_keys WHERE payment_attempt_id = $1")
+            .bind(payment_attempt_id)
+            .fetch_optional(conn)
+            .await?;
     Ok(match row {
         Some((Some(status), Some(body))) => Some(StoredResponse { status: stored_status(status), body }),
         _ => None,

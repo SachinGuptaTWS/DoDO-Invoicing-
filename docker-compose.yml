@@ -1,0 +1,64 @@
+# The three app containers share one image; each runs a different binary.
+x-app: &app
+  build: .
+  image: dodo-invoicing
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: invoicing
+      POSTGRES_PASSWORD: invoicing
+      POSTGRES_DB: invoicing
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U invoicing -d invoicing"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mock-psp:
+    <<: *app
+    command: ["mock-psp"]
+    environment:
+      BIND_ADDR: 0.0.0.0:9090
+
+  webhook-sink:
+    <<: *app
+    command: ["webhook-sink"]
+    environment:
+      BIND_ADDR: 0.0.0.0:9191
+    ports:
+      # GET http://localhost:9191/received lists what was delivered.
+      - "9191:9191"
+
+  invoicing:
+    <<: *app
+    command: ["invoicing"]
+    environment:
+      DATABASE_URL: postgres://invoicing:invoicing@postgres:5432/invoicing
+      BIND_ADDR: 0.0.0.0:8080
+      # Local-only operator token for POST /v1/admin/businesses.
+      ADMIN_TOKEN: local-dev-admin-token
+      PSP_BASE_URL: http://mock-psp:9090
+      PSP_TIMEOUT_MS: "3000"
+      RUST_LOG: info,sqlx=warn
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mock-psp:
+        condition: service_started
+      webhook-sink:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: on-failure
+
+volumes:
+  pgdata:

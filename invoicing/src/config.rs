@@ -23,9 +23,7 @@ impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
         let config = Self {
             database_url: required("DATABASE_URL")?,
-            bind_addr: optional("BIND_ADDR", "0.0.0.0:8080")
-                .parse()
-                .context("BIND_ADDR must be host:port")?,
+            bind_addr: optional("BIND_ADDR", "0.0.0.0:8080").parse().context("BIND_ADDR must be host:port")?,
             admin_token: required("ADMIN_TOKEN")?,
             psp_base_url: required("PSP_BASE_URL")?,
             psp_timeout: millis("PSP_TIMEOUT_MS", 3_000)?,

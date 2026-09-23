@@ -28,9 +28,7 @@ async fn main() -> anyhow::Result<()> {
 
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
     tracing::info!(%bind_addr, "invoicing service listening");
-    axum::serve(listener, app::router(state))
-        .with_graceful_shutdown(shutdown_signal(shutdown.clone()))
-        .await?;
+    axum::serve(listener, app::router(state)).with_graceful_shutdown(shutdown_signal(shutdown.clone())).await?;
 
     // The signal handler has already cancelled `shutdown`; let workers finish
     // their current batch.
