@@ -1,7 +1,7 @@
 mod common;
 
 use common::{pool, spawn_app, TestOptions, INVOICE_TOTAL_CENTS};
-use futures::future::join_all;
+use futures_util::future::join_all;
 use reqwest::StatusCode;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 

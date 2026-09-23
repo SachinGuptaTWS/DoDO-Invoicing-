@@ -32,7 +32,8 @@ async fn main() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal(shutdown.clone()))
         .await?;
 
-    shutdown.cancel();
+    // The signal handler has already cancelled `shutdown`; let workers finish
+    // their current batch.
     for worker in workers {
         let _ = worker.await;
     }

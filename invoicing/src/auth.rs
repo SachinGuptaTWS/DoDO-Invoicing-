@@ -9,10 +9,9 @@ use crate::{api_keys, app::AppState, error::ApiError};
 
 /// The business on whose behalf a request is made. Every query that touches
 /// tenant data takes `business_id` from here, never from the request body.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct AuthenticatedBusiness {
     pub business_id: Uuid,
-    pub api_key_id: Uuid,
 }
 
 impl FromRequestParts<AppState> for AuthenticatedBusiness {
@@ -25,18 +24,18 @@ impl FromRequestParts<AppState> for AuthenticatedBusiness {
 
         // Looking up by hash means no secret-dependent comparison happens in
         // our code, so there is no timing side channel to reason about.
-        let row: Option<(Uuid, Uuid)> =
-            sqlx::query_as("SELECT id, business_id FROM api_keys WHERE key_hash = $1 AND revoked_at IS NULL")
+        let business_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT business_id FROM api_keys WHERE key_hash = $1 AND revoked_at IS NULL")
                 .bind(api_keys::hash_key(presented))
                 .fetch_optional(&state.db)
                 .await?;
 
-        // Same response for unknown and revoked keys: no oracle for which
-        // leaked keys are still live.
-        let (api_key_id, business_id) =
-            row.ok_or_else(|| ApiError::unauthorized("invalid_api_key", "API key is invalid or revoked"))?;
+        // Unknown and revoked keys get the same answer, so whoever holds a
+        // leaked key cannot tell whether it still works elsewhere.
+        let business_id =
+            business_id.ok_or_else(|| ApiError::unauthorized("invalid_api_key", "API key is invalid or revoked"))?;
 
-        Ok(Self { business_id, api_key_id })
+        Ok(Self { business_id })
     }
 }
 

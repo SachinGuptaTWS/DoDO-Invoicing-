@@ -25,6 +25,8 @@ pub struct ReceivedWebhook {
     pub event_id: Option<String>,
     pub event_type: Option<String>,
     pub signature: Option<String>,
+    /// Exactly the bytes that were signed; verify against this, not `body`.
+    pub raw_body: String,
     pub body: Value,
     pub responded_with: u16,
 }
@@ -55,6 +57,7 @@ async fn receive(State(sink): State<WebhookSink>, Path(hook): Path<String>, head
         event_id: header("dodo-event-id"),
         event_type: header("dodo-event-type"),
         signature: header("dodo-signature"),
+        raw_body: String::from_utf8_lossy(&body).into_owned(),
         body: serde_json::from_slice(&body).unwrap_or(Value::Null),
         responded_with: status.as_u16(),
     };

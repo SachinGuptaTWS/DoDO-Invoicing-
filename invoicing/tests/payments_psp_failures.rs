@@ -40,10 +40,17 @@ async fn psp_timeout_returns_promptly_and_settles_through_reconciliation(opts: P
     assert_eq!(invoice["payment_attempts"][0]["status"], "succeeded");
     assert_eq!(app.psp.successful_charges(), vec![INVOICE_TOTAL_CENTS]);
 
-    // The original key now replays the final outcome, not the stale 202.
+    // The original key now replays the final outcome instead of the 202.
     let replay = app.pay(invoice_id, "slow-psp", "tok_timeout").await;
     assert_eq!(replay.status, StatusCode::OK);
     assert!(replay.replayed);
+
+    // The 409 given to the impatient client was not stored against its key,
+    // so its retry is evaluated fresh against the paid invoice.
+    let retry = app.pay(invoice_id, "impatient-client", "tok_success").await;
+    assert_eq!(retry.body["error"]["code"], "invoice_already_paid");
+    assert!(!retry.replayed);
+    assert_eq!(app.psp.successful_charges(), vec![INVOICE_TOTAL_CENTS]);
 }
 
 #[sqlx::test(migrator = "invoicing::MIGRATOR")]

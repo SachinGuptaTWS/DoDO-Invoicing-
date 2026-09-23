@@ -8,15 +8,15 @@
 
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use futures_util::future::join_all;
 use rand::Rng;
-use serde_json::{json, Value};
 use sqlx::PgPool;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::signature;
+use crate::events::Event;
 
 /// Delay before retry N (after failed attempt N). Front-loaded so transient
 /// blips recover in seconds, then spaced so a receiver that is down for a
@@ -32,16 +32,17 @@ pub const RETRY_SCHEDULE: [Duration; 7] = [
 ];
 pub const MAX_ATTEMPTS: i32 = RETRY_SCHEDULE.len() as i32 + 1;
 
-const BATCH_SIZE: i64 = 32;
+const BATCH_SIZE: usize = 32;
 /// Must comfortably exceed the per-request webhook timeout.
 const LEASE: Duration = Duration::from_secs(60);
 const MAX_ERROR_LEN: usize = 500;
 
 pub async fn run(db: PgPool, http: reqwest::Client, poll_interval: Duration, shutdown: CancellationToken) {
     tracing::info!("webhook dispatcher started");
-    loop {
+    while !shutdown.is_cancelled() {
         match dispatch_due(&db, &http).await {
-            Ok(n) if n as i64 == BATCH_SIZE => continue,
+            // A full batch means more is waiting, so skip the sleep.
+            Ok(n) if n == BATCH_SIZE => continue,
             Ok(_) => {}
             Err(err) => tracing::error!(error = %err, "webhook dispatch pass failed"),
         }
@@ -55,14 +56,12 @@ pub async fn run(db: PgPool, http: reqwest::Client, poll_interval: Duration, shu
 
 #[derive(sqlx::FromRow)]
 struct LeasedDelivery {
-    event_id: Uuid,
     endpoint_id: Uuid,
     attempt_count: i32,
     url: String,
     signing_secret: String,
-    event_type: String,
-    event_created_at: DateTime<Utc>,
-    data: Value,
+    #[sqlx(flatten)]
+    event: Event,
 }
 
 enum DeliveryResult {
@@ -75,7 +74,11 @@ async fn dispatch_due(db: &PgPool, http: &reqwest::Client) -> Result<usize, sqlx
     let count = leased.len();
     let results = join_all(leased.iter().map(|delivery| deliver(http, delivery))).await;
     for (delivery, result) in leased.iter().zip(results) {
-        record_result(db, delivery, result).await?;
+        // Keep going: the lease on this row runs out and it is sent again,
+        // which at-least-once delivery already allows for.
+        if let Err(err) = record_result(db, delivery, result).await {
+            tracing::error!(event_id = %delivery.event.id, endpoint_id = %delivery.endpoint_id, error = %err, "failed to record webhook result");
+        }
     }
     Ok(count)
 }
@@ -95,23 +98,19 @@ async fn lease_due(db: &PgPool) -> Result<Vec<LeasedDelivery>, sqlx::Error> {
          FROM due, events e, webhook_endpoints w
          WHERE d.event_id = due.event_id AND d.endpoint_id = due.endpoint_id
            AND e.id = d.event_id AND w.id = d.endpoint_id
-         RETURNING d.event_id, d.endpoint_id, d.attempt_count, w.url, w.signing_secret,
-                   e.event_type, e.created_at AS event_created_at, e.data",
+         RETURNING d.endpoint_id, d.attempt_count, w.url, w.signing_secret,
+                   e.id, e.event_type, e.created_at, e.data",
     )
-    .bind(BATCH_SIZE)
+    .bind(BATCH_SIZE as i64)
     .bind(LEASE.as_secs_f64())
     .fetch_all(db)
     .await
 }
 
 async fn deliver(http: &reqwest::Client, delivery: &LeasedDelivery) -> DeliveryResult {
-    let body = json!({
-        "id": delivery.event_id,
-        "type": delivery.event_type,
-        "created_at": delivery.event_created_at,
-        "data": delivery.data,
-    })
-    .to_string();
+    // Same serialization as `GET /v1/events`, so a replayed event and a
+    // delivered one look identical to the receiver.
+    let body = serde_json::to_string(&delivery.event).expect("an event is always valid JSON");
     // Signed per attempt: a fresh timestamp keeps retries inside the
     // receiver's replay tolerance.
     let signature = signature::sign(&delivery.signing_secret, Utc::now().timestamp(), body.as_bytes());
@@ -120,8 +119,8 @@ async fn deliver(http: &reqwest::Client, delivery: &LeasedDelivery) -> DeliveryR
         .post(&delivery.url)
         .header("content-type", "application/json")
         .header(signature::HEADER, signature)
-        .header("dodo-event-id", delivery.event_id.to_string())
-        .header("dodo-event-type", &delivery.event_type)
+        .header("dodo-event-id", delivery.event.id.to_string())
+        .header("dodo-event-type", &delivery.event.event_type)
         .body(body)
         .send()
         .await;
@@ -145,7 +144,7 @@ async fn record_result(db: &PgPool, delivery: &LeasedDelivery, result: DeliveryR
              SET status = 'delivered', delivered_at = now(), last_response_status = $4, last_error = NULL
              WHERE event_id = $1 AND endpoint_id = $2 AND attempt_count = $3 AND status = 'pending'",
         )
-        .bind(delivery.event_id)
+        .bind(delivery.event.id)
         .bind(delivery.endpoint_id)
         .bind(delivery.attempt_count)
         .bind(i16::try_from(*status).ok()),
@@ -158,7 +157,7 @@ async fn record_result(db: &PgPool, delivery: &LeasedDelivery, result: DeliveryR
                      last_response_status = $6, last_error = $7
                  WHERE event_id = $1 AND endpoint_id = $2 AND attempt_count = $3 AND status = 'pending'",
             )
-            .bind(delivery.event_id)
+            .bind(delivery.event.id)
             .bind(delivery.endpoint_id)
             .bind(delivery.attempt_count)
             .bind(if exhausted { "exhausted" } else { "pending" })
@@ -171,15 +170,15 @@ async fn record_result(db: &PgPool, delivery: &LeasedDelivery, result: DeliveryR
 
     match result {
         DeliveryResult::Delivered { status } => tracing::info!(
-            event_id = %delivery.event_id, endpoint_id = %delivery.endpoint_id,
+            event_id = %delivery.event.id, endpoint_id = %delivery.endpoint_id,
             attempt = delivery.attempt_count, status, "webhook delivered"
         ),
         DeliveryResult::Failed { error, .. } if delivery.attempt_count >= MAX_ATTEMPTS => tracing::error!(
-            event_id = %delivery.event_id, endpoint_id = %delivery.endpoint_id,
+            event_id = %delivery.event.id, endpoint_id = %delivery.endpoint_id,
             attempt = delivery.attempt_count, %error, "webhook retries exhausted"
         ),
         DeliveryResult::Failed { error, .. } => tracing::warn!(
-            event_id = %delivery.event_id, endpoint_id = %delivery.endpoint_id,
+            event_id = %delivery.event.id, endpoint_id = %delivery.endpoint_id,
             attempt = delivery.attempt_count, %error, "webhook delivery failed; will retry"
         ),
     }

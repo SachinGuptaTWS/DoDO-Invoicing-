@@ -43,10 +43,6 @@ impl InvoiceStatus {
             Self::Void => "void",
         }
     }
-
-    pub const fn is_terminal(self) -> bool {
-        matches!(self, Self::Paid | Self::Void)
-    }
 }
 
 impl TryFrom<String> for InvoiceStatus {
@@ -125,6 +121,10 @@ impl InvoiceTransition {
 mod tests {
     use super::*;
 
+    fn is_terminal(status: InvoiceStatus) -> bool {
+        matches!(status, InvoiceStatus::Paid | InvoiceStatus::Void)
+    }
+
     const ALL_STATUSES: [InvoiceStatus; 4] =
         [InvoiceStatus::Open, InvoiceStatus::Processing, InvoiceStatus::Paid, InvoiceStatus::Void];
     const ALL_TRANSITIONS: [InvoiceTransition; 4] = [
@@ -137,13 +137,13 @@ mod tests {
     #[test]
     fn terminal_states_have_no_outgoing_transitions() {
         for transition in ALL_TRANSITIONS {
-            assert!(!transition.from().is_terminal(), "{transition:?} leaves a terminal state");
+            assert!(!is_terminal(transition.from()), "{transition:?} leaves a terminal state");
         }
     }
 
     #[test]
     fn every_non_terminal_state_is_reachable_and_exitable() {
-        for status in ALL_STATUSES.into_iter().filter(|s| !s.is_terminal()) {
+        for status in ALL_STATUSES.into_iter().filter(|s| !is_terminal(*s)) {
             assert!(ALL_TRANSITIONS.iter().any(|t| t.from() == status), "{status:?} is a dead end");
         }
         for status in ALL_STATUSES.into_iter().filter(|s| *s != InvoiceStatus::Open) {

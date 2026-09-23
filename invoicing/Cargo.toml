@@ -29,5 +29,3 @@ tower-http = { version = "0.6", features = ["trace", "request-id", "util"] }
 
 [dev-dependencies]
 harness = { path = "../harness" }
-futures = "0.3"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }

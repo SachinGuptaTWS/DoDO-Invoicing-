@@ -33,9 +33,12 @@ async fn state_changes_are_delivered_as_signed_webhooks(opts: PgPoolOptions, con
 
     let now = chrono::Utc::now().timestamp();
     for hook in &received {
-        let body = serde_json::to_vec(&hook.body).unwrap();
         let header = hook.signature.as_deref().unwrap();
-        assert!(signature::verify(&secret, header, &body, now, 300), "bad signature on {:?}", hook.event_type);
+        assert!(
+            signature::verify(&secret, header, hook.raw_body.as_bytes(), now, signature::RECOMMENDED_TOLERANCE_SECS),
+            "bad signature on {:?}",
+            hook.event_type
+        );
         assert_eq!(hook.body["id"].as_str(), hook.event_id.as_deref());
     }
 }

@@ -1,10 +1,9 @@
 //! Client for the payment service provider.
 //!
-//! The rule this module encodes: we only act on an answer the PSP gave us.
-//! A timeout, a dropped connection, a 5xx, or a body we cannot parse all mean
-//! "unknown" — the charge may or may not have happened — and are surfaced as
-//! `Indeterminate` so the caller leaves the attempt pending for reconciliation
-//! instead of guessing in either direction.
+//! We only act on an answer the PSP actually gave us. After a timeout, a
+//! dropped connection, a 5xx, or a body we cannot parse, the charge may or
+//! may not have happened. Those all come back as `Indeterminate`, and the
+//! caller leaves the attempt pending for the reconciler instead of guessing.
 
 use std::time::Duration;
 

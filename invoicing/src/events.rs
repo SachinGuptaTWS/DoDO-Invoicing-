@@ -39,7 +39,7 @@ impl EventType {
 
 /// The webhook body and the `GET /v1/events` item are the same shape, so a
 /// receiver can process a replayed event exactly like a delivered one.
-#[derive(Debug, Clone, Serialize, FromRow)]
+#[derive(Serialize, FromRow)]
 pub struct Event {
     pub id: Uuid,
     #[serde(rename = "type")]
@@ -53,7 +53,7 @@ pub async fn record(
     business_id: Uuid,
     event_type: EventType,
     data: Value,
-) -> Result<Uuid, sqlx::Error> {
+) -> Result<(), sqlx::Error> {
     let event_id = Uuid::now_v7();
     sqlx::query("INSERT INTO events (id, business_id, event_type, data) VALUES ($1, $2, $3, $4)")
         .bind(event_id)
@@ -63,8 +63,8 @@ pub async fn record(
         .execute(&mut *conn)
         .await?;
 
-    // Fan out to endpoints active *now*. An endpoint registered later does
-    // not receive history; it can read it from the events API.
+    // Fan out to the endpoints active right now. An endpoint registered
+    // later gets no history pushed to it; it can page through the events API.
     sqlx::query(
         "INSERT INTO webhook_deliveries (event_id, endpoint_id)
          SELECT $1, id FROM webhook_endpoints WHERE business_id = $2 AND disabled_at IS NULL",
@@ -73,8 +73,7 @@ pub async fn record(
     .bind(business_id)
     .execute(conn)
     .await?;
-
-    Ok(event_id)
+    Ok(())
 }
 
 #[derive(Deserialize)]

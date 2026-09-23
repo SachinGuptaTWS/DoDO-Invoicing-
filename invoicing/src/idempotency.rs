@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 use crate::error::ApiError;
 
-pub const HEADER: &str = "idempotency-key";
+const HEADER: &str = "idempotency-key";
 
 pub struct IdempotencyKey(String);
 
@@ -40,19 +40,16 @@ impl IdempotencyKey {
     }
 }
 
-/// Hash of what the request *means*: method, path, and the body re-serialized
-/// from parsed JSON (serde_json sorts object keys), so whitespace or key order
-/// differences do not count as a different request.
+/// Hash of the inputs that decide what a pay request does. The body is
+/// `deny_unknown_fields`, so the invoice id and card token are all of it;
+/// whitespace or key order in the raw JSON cannot make two requests differ.
 pub struct RequestFingerprint([u8; 32]);
 
 impl RequestFingerprint {
-    pub fn new(method: &str, path: &str, body: &Value) -> Self {
+    pub fn for_payment(invoice_id: Uuid, card_token: &str) -> Self {
         let mut hasher = Sha256::new();
-        hasher.update(method.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(path.as_bytes());
-        hasher.update(b"\n");
-        hasher.update(body.to_string().as_bytes());
+        hasher.update(invoice_id.as_bytes());
+        hasher.update(card_token.as_bytes());
         Self(hasher.finalize().into())
     }
 }

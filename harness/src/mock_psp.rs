@@ -43,8 +43,8 @@ impl Default for MockPspConfig {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Outcome {
+#[derive(Clone)]
+enum Outcome {
     Succeeded { psp_ref: String },
     Failed { code: &'static str },
 }

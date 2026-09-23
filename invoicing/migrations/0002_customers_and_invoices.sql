@@ -4,8 +4,8 @@ CREATE TABLE customers (
     name         text        NOT NULL CHECK (length(name) BETWEEN 1 AND 200),
     email        text        NOT NULL CHECK (length(email) BETWEEN 3 AND 254),
     created_at   timestamptz NOT NULL DEFAULT now(),
-    -- Target of the composite FK below: an invoice can only reference a
-    -- customer of the same business, enforced by the database, not by hope.
+    -- Target of the composite FK on invoices: the database guarantees an
+    -- invoice only references a customer of the same business.
     UNIQUE (id, business_id)
 );
 

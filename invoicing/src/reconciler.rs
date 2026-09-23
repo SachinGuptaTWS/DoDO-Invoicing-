@@ -9,6 +9,7 @@
 
 use std::time::Duration;
 
+use futures_util::future::join_all;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -18,20 +19,23 @@ use crate::{
     psp::{ChargeLookup, Settlement},
 };
 
-const BATCH_SIZE: i64 = 16;
-/// While a worker holds an attempt, other workers skip it. Long enough to
-/// cover one PSP lookup plus a settle; if the worker dies, it expires.
+const BATCH_SIZE: usize = 16;
+/// While a worker holds an attempt, other workers skip it. The batch is
+/// checked concurrently, so this only has to cover one PSP lookup plus a
+/// settle. If the worker dies, the lease runs out and the attempt comes back.
 const LEASE: Duration = Duration::from_secs(30);
 const MAX_BACKOFF: Duration = Duration::from_secs(60);
-/// At a 60 s cap this is roughly half an hour of the PSP not being able to
-/// tell us anything. Past that it is an incident, not a retry loop.
+/// With the 60 s cap this is about half an hour without an answer from the
+/// PSP. We keep checking after that, but log at error level so a person
+/// looks at it.
 const ESCALATE_AFTER_CHECKS: i32 = 40;
 
 pub async fn run(state: AppState, shutdown: CancellationToken) {
     tracing::info!("payment reconciler started");
-    loop {
+    while !shutdown.is_cancelled() {
         match reconcile_due(&state).await {
-            Ok(n) if n as i64 == BATCH_SIZE => continue,
+            // A full batch means more is waiting, so skip the sleep.
+            Ok(n) if n == BATCH_SIZE => continue,
             Ok(_) => {}
             Err(err) => tracing::error!(error = %err, "reconciler pass failed"),
         }
@@ -51,9 +55,7 @@ struct DueAttempt {
 
 async fn reconcile_due(state: &AppState) -> Result<usize, sqlx::Error> {
     let due = claim_due(state).await?;
-    for attempt in &due {
-        reconcile_one(state, attempt).await;
-    }
+    join_all(due.iter().map(|attempt| reconcile_one(state, attempt))).await;
     Ok(due.len())
 }
 
@@ -72,7 +74,7 @@ async fn claim_due(state: &AppState) -> Result<Vec<DueAttempt>, sqlx::Error> {
          FROM due WHERE p.id = due.id
          RETURNING p.id, p.reconcile_count, p.created_at < now() - make_interval(secs => $3)",
     )
-    .bind(BATCH_SIZE)
+    .bind(BATCH_SIZE as i64)
     .bind(LEASE.as_secs_f64())
     .bind(state.config.psp_not_found_grace.as_secs_f64())
     .fetch_all(&state.db)

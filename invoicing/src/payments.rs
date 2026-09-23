@@ -7,9 +7,9 @@
 //!    the invoice `open → processing` with a compare-and-set, insert a
 //!    `pending` attempt. Commit. Losers of a race stop here with a 409.
 //! 2. **Charge** (no transaction held): call the PSP with the attempt id as
-//!    its idempotency key, bounded by `PSP_TIMEOUT_MS`. Holding a row lock or
-//!    a pooled connection across a network call to a slow dependency is how a
-//!    PSP brownout becomes our outage.
+//!    its idempotency key, bounded by `PSP_TIMEOUT_MS`. Nothing is locked and
+//!    no pooled connection is held during the call, so a slow PSP cannot
+//!    starve the pool or block other writers on the invoice.
 //! 3. **Settle** (one short transaction), only on a definitive PSP answer:
 //!    attempt → succeeded/failed, invoice → paid/open, outbox event, stored
 //!    idempotent response. If the answer is not definitive, respond 202 and
@@ -20,14 +20,13 @@
 //! resolves. There is no crash window that loses or duplicates a charge.
 
 use axum::{
-    body::Bytes,
     extract::State,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use sqlx::{FromRow, PgConnection, PgPool};
 use uuid::Uuid;
 
@@ -36,13 +35,13 @@ use crate::{
     auth::AuthenticatedBusiness,
     error::ApiError,
     events::{self, EventType},
-    extract::ApiPath,
+    extract::{ApiJson, ApiPath},
     idempotency::{self, IdempotencyKey, PriorUse, RequestFingerprint, Reservation, StoredResponse},
-    invoices::{self, Invoice, InvoiceTransition, TransitionOutcome},
+    invoices::{self, Invoice, InvoiceStatus, InvoiceTransition, TransitionOutcome},
     psp::{ChargeResult, Settlement},
 };
 
-pub(crate) const ATTEMPT_COLUMNS: &str =
+const ATTEMPT_COLUMNS: &str =
     "id, invoice_id, status, amount_cents, psp_ref, failure_code, created_at, settled_at";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -113,11 +112,13 @@ pub async fn pay_invoice(
     business: AuthenticatedBusiness,
     ApiPath(invoice_id): ApiPath<Uuid>,
     headers: HeaderMap,
-    body: Bytes,
+    ApiJson(request): ApiJson<PayInvoiceRequest>,
 ) -> Result<Response, ApiError> {
     let key = IdempotencyKey::from_headers(&headers)?;
-    let (request, body_value) = parse_request(&body)?;
-    let fingerprint = RequestFingerprint::new("POST", &format!("/v1/invoices/{invoice_id}/pay"), &body_value);
+    if request.card_token.is_empty() || request.card_token.len() > 255 {
+        return Err(ApiError::validation("card_token", "card_token must be 1-255 characters"));
+    }
+    let fingerprint = RequestFingerprint::for_payment(invoice_id, &request.card_token);
 
     let claim = match claim_invoice(&state, business.business_id, invoice_id, &key, &fingerprint).await? {
         Claim::Claimed(claim) => claim,
@@ -147,17 +148,6 @@ pub async fn pay_invoice(
     }
 }
 
-fn parse_request(body: &[u8]) -> Result<(PayInvoiceRequest, Value), ApiError> {
-    let value: Value = serde_json::from_slice(body)
-        .map_err(|err| ApiError::invalid_request(format!("Request body is not valid JSON: {err}")))?;
-    let request: PayInvoiceRequest = serde_json::from_value(value.clone())
-        .map_err(|err| ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "validation_failed", err.to_string()))?;
-    if request.card_token.is_empty() || request.card_token.len() > 255 {
-        return Err(ApiError::validation("card_token", "card_token must be 1-255 characters"));
-    }
-    Ok((request, value))
-}
-
 struct PaymentClaim {
     payment_attempt_id: Uuid,
     amount_cents: i64,
@@ -165,8 +155,9 @@ struct PaymentClaim {
 
 enum Claim {
     Claimed(PaymentClaim),
-    /// First use of this key, and the invoice cannot be paid. The rejection
-    /// is stored against the key, so retries get the same answer.
+    /// First use of this key, and the invoice can never be paid by it
+    /// (already paid, void, or missing). Stored against the key, so retries
+    /// get the same answer.
     Rejected(StoredResponse),
     Replay(StoredResponse),
     AwaitingSettlement { payment_attempt_id: Uuid },
@@ -191,6 +182,12 @@ async fn claim_invoice(
     let transition = InvoiceTransition::BeginPayment;
     let invoice = match invoices::apply_transition(&mut tx, business_id, invoice_id, transition).await? {
         TransitionOutcome::Applied(invoice) => invoice,
+        // Another attempt is in flight. That is temporary, so the 409 is not
+        // stored: dropping `tx` releases the key, and the same request can be
+        // retried once the other attempt settles.
+        TransitionOutcome::Rejected(current @ InvoiceStatus::Processing) => {
+            return Err(transition.rejection(current));
+        }
         TransitionOutcome::Rejected(current) => {
             let response = StoredResponse::from_error(&transition.rejection(current));
             idempotency::complete(&mut tx, business_id, key, &response).await?;

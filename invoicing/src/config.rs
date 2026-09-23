@@ -3,7 +3,6 @@ use std::{env, net::SocketAddr, time::Duration};
 use anyhow::{bail, Context};
 
 /// Runtime configuration. Deliberately not `Debug`: it holds the admin token.
-#[derive(Clone)]
 pub struct Config {
     pub database_url: String,
     pub bind_addr: SocketAddr,
