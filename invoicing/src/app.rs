@@ -1,8 +1,9 @@
-use std::sync::Arc;
+use std::{any::Any, sync::Arc};
 
 use axum::{
     extract::{DefaultBodyLimit, State},
-    http::{HeaderName, Request},
+    http::{HeaderName, Request, StatusCode},
+    response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
 };
@@ -10,6 +11,7 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use tower::ServiceBuilder;
 use tower_http::{
+    catch_panic::CatchPanicLayer,
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer},
     trace::{DefaultOnResponse, TraceLayer},
 };
@@ -43,7 +45,6 @@ pub fn router(state: AppState) -> Router {
     let request_id = HeaderName::from_static("x-request-id");
 
     Router::new()
-        .route("/healthz", get(health))
         .route("/v1/admin/businesses", post(businesses::create_business))
         .route("/v1/api_keys", post(api_keys::create_api_key).get(api_keys::list_api_keys))
         .route("/v1/api_keys/{id}", delete(api_keys::revoke_api_key))
@@ -59,7 +60,15 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/v1/webhook_endpoints/{id}", delete(webhook_endpoints::disable_webhook_endpoint))
         .route("/v1/events", get(events::list_events))
+        // Both keep the error envelope for requests no handler matches; axum's
+        // own 404/405 have an empty body.
         .fallback(|| async { ApiError::not_found("route") })
+        .method_not_allowed_fallback(|| async {
+            ApiError::new(StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed", "Method not allowed on this route")
+        })
+        // Innermost, so a panic still becomes a JSON 500 that the trace layer
+        // logs, instead of a dropped connection.
+        .layer(CatchPanicLayer::custom(panic_response))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(
             ServiceBuilder::new()
@@ -83,7 +92,16 @@ pub fn router(state: AppState) -> Router {
                 )
                 .layer(PropagateRequestIdLayer::new(request_id)),
         )
+        // Added after the layers so it is not traced: Docker probes it every
+        // few seconds, which would bury the request log.
+        .route("/healthz", get(health))
         .with_state(state)
+}
+
+/// The panic message itself is already printed by the default panic hook.
+fn panic_response(_panic: Box<dyn Any + Send>) -> Response {
+    tracing::error!("request handler panicked");
+    ApiError::internal().into_response()
 }
 
 async fn health(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {

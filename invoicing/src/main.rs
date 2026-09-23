@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use invoicing::{app, config::Config, workers, MIGRATOR};
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
@@ -13,10 +13,17 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = Config::from_env()?;
+    // No statement here should take more than milliseconds. The timeout turns a
+    // request stuck behind a lock into an error instead of a hung connection.
+    let connect_options = config
+        .database_url
+        .parse::<PgConnectOptions>()
+        .context("DATABASE_URL is not a valid Postgres URL")?
+        .options([("statement_timeout", "10s")]);
     let db = PgPoolOptions::new()
         .max_connections(20)
         .acquire_timeout(Duration::from_secs(5))
-        .connect(&config.database_url)
+        .connect_with(connect_options)
         .await
         .context("connecting to Postgres")?;
     MIGRATOR.run(&db).await.context("running migrations")?;

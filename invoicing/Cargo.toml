@@ -25,7 +25,7 @@ sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }
 tokio-util = "0.7"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["trace", "request-id", "util"] }
+tower-http = { version = "0.6", features = ["catch-panic", "trace", "request-id", "util"] }
 
 [dev-dependencies]
 harness = { path = "../harness" }

@@ -45,6 +45,12 @@ async fn bad_input_is_a_client_error(opts: PgPoolOptions, conn: PgConnectOptions
         .unwrap();
     assert_eq!(no_content_type.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
 
+    let wrong_method = app.http.put(format!("{}/v1/customers", app.base_url)).bearer_auth(&app.api_key).send().await;
+    let wrong_method = wrong_method.unwrap();
+    assert_eq!(wrong_method.status(), StatusCode::METHOD_NOT_ALLOWED);
+    let body: serde_json::Value = wrong_method.json().await.unwrap();
+    assert_eq!(body["error"]["code"], "method_not_allowed", "405 must use the error envelope too");
+
     let lowercase_scheme = app
         .http
         .get(format!("{}/v1/customers", app.base_url))

@@ -14,6 +14,8 @@ info:
 
     **Errors** share one shape on every non-2xx response (see `Error`). `code`
     is stable and machine-readable; `message` is for humans and may change.
+    That includes requests no route matches: `404 resource_not_found` for an
+    unknown path, `405 method_not_allowed` for a known path with the wrong method.
 
     **Lists** are keyset-paginated, newest first: pass the last `id` you saw as
     `starting_after`. `limit` is 1-100 (default 20). `GET /v1/events` is the
