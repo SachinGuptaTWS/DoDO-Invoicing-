@@ -29,6 +29,12 @@ async fn bad_input_is_a_client_error(opts: PgPoolOptions, conn: PgConnectOptions
     let client_total = app.post("/v1/invoices", with_total).await;
     assert_eq!(client_total.status, StatusCode::UNPROCESSABLE_ENTITY);
 
+    // The docx calls it "state"; both names filter, and a typo is refused
+    // rather than silently returning every invoice.
+    let by_state = app.get("/v1/invoices?state=paid").await;
+    assert_eq!((by_state.status, &by_state.body["data"]), (StatusCode::OK, &json!([])));
+    assert_eq!(app.get("/v1/invoices?stauts=paid").await.status, StatusCode::BAD_REQUEST);
+
     let no_content_type = app
         .http
         .post(format!("{}/v1/customers", app.base_url))

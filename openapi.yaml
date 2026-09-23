@@ -258,6 +258,7 @@ paths:
       parameters:
         - name: status
           in: query
+          description: "`state` is accepted as an alias. Unknown query parameters are a `400`."
           schema: { $ref: "#/components/schemas/InvoiceStatus" }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/StartingAfter"
@@ -426,6 +427,11 @@ paths:
                       signing_secret: { type: string, example: whsec_4_tzCV3i8pvGTXvgZKrgt4wye8YGsezUoOATpEBdvUc }
         "400": { $ref: "#/components/responses/InvalidRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: "`webhook_endpoint_exists`: the URL is already an active endpoint of this business"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "422": { $ref: "#/components/responses/ValidationFailed" }
     get:
       operationId: listWebhookEndpoints

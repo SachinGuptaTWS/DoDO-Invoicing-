@@ -14,6 +14,8 @@ async fn state_changes_are_delivered_as_signed_webhooks(opts: PgPoolOptions, con
     let endpoint = app.post("/v1/webhook_endpoints", json!({ "url": format!("{}/hooks/ok", app.sink_url) })).await;
     assert_eq!(endpoint.status, StatusCode::CREATED, "{}", endpoint.body);
     let secret = endpoint.body["signing_secret"].as_str().unwrap().to_owned();
+    let again = app.post("/v1/webhook_endpoints", json!({ "url": format!("{}/hooks/ok", app.sink_url) })).await;
+    assert_eq!(again.body["error"]["code"], "webhook_endpoint_exists", "a duplicate would double every delivery");
 
     let paid = app.open_invoice().await;
     assert_eq!(app.pay(paid, "k1", "tok_success").await.status, StatusCode::OK);

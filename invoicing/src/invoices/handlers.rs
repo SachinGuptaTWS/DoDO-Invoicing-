@@ -117,8 +117,12 @@ pub async fn get_invoice(
         .ok_or_else(|| ApiError::not_found("invoice"))
 }
 
+/// Unknown parameters are rejected: a misspelt filter would otherwise be
+/// ignored and return every invoice, which looks like a correct answer.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ListInvoicesParams {
+    #[serde(alias = "state")]
     pub status: Option<InvoiceStatus>,
     pub limit: Option<u32>,
     pub starting_after: Option<Uuid>,

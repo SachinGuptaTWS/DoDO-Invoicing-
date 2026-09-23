@@ -4,6 +4,9 @@ name: dodo-invoicing
 x-app: &app
   build: .
   image: dodo-invoicing
+  # The harness binaries install no SIGTERM handler, and as PID 1 the signal
+  # would be ignored; tini forwards it so `docker compose down` is immediate.
+  init: true
 
 services:
   postgres:

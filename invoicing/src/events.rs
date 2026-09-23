@@ -85,6 +85,7 @@ pub async fn record(
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ListEventsParams {
     /// Cursor: return events strictly after this id, oldest first.
     pub after: Option<Uuid>,

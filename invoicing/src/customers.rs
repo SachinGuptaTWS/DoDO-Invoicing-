@@ -79,6 +79,7 @@ pub async fn get_customer(
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ListCustomersParams {
     pub limit: Option<u32>,
     pub starting_after: Option<Uuid>,

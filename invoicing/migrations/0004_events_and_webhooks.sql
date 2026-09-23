@@ -9,7 +9,9 @@ CREATE TABLE webhook_endpoints (
     disabled_at     timestamptz
 );
 
-CREATE INDEX webhook_endpoints_active_idx ON webhook_endpoints (business_id) WHERE disabled_at IS NULL;
+-- A URL registered twice would receive every event twice. Also serves the
+-- fan-out lookup of a business's active endpoints.
+CREATE UNIQUE INDEX webhook_endpoints_active_url_idx ON webhook_endpoints (business_id, url) WHERE disabled_at IS NULL;
 
 -- The event log is the transactional outbox and the reconciliation source:
 -- rows are written in the same transaction as the state change they describe.

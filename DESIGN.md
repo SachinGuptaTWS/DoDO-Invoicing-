@@ -30,6 +30,7 @@ erDiagram
 | `payment_attempts` | `status pending/succeeded/failed`, `amount_cents`, `psp_ref`, `failure_code`, `reconcile_after` | partial unique `(invoice_id) WHERE status='pending'` and `WHERE status='succeeded'`; `(reconcile_after) WHERE pending` |
 | `idempotency_keys` | PK `(business_id, key)`, `request_fingerprint`, `payment_attempt_id`, stored `response_status/body` | unique on `payment_attempt_id` |
 | `events` | `event_type`, `data jsonb`, `seq` (commit-ordered cursor): the outbox and the reconciliation log | unique `(business_id, seq)` |
+| `webhook_endpoints` | url, `signing_secret`, `disabled_at` | partial unique `(business_id, url) WHERE disabled_at IS NULL`: no duplicate deliveries |
 | `webhook_deliveries` | PK `(event_id, endpoint_id)`, status, `attempt_count`, `next_attempt_at`, last response/error | `(next_attempt_at) WHERE pending` |
 
 **Why this shape**

@@ -56,7 +56,13 @@ pub async fn create_webhook_endpoint(
     .bind(url.as_str())
     .bind(&signing_secret)
     .fetch_one(&state.db)
-    .await?;
+    .await
+    .map_err(|err| match err {
+        sqlx::Error::Database(db) if db.constraint() == Some("webhook_endpoints_active_url_idx") => {
+            ApiError::conflict("webhook_endpoint_exists", "This URL is already registered as an active endpoint")
+        }
+        other => other.into(),
+    })?;
 
     tracing::info!(business_id = %business.business_id, endpoint_id = %endpoint.id, "webhook endpoint registered");
     Ok((StatusCode::CREATED, Json(CreatedWebhookEndpoint { endpoint, signing_secret })))
