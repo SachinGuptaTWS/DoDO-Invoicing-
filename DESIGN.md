@@ -74,13 +74,13 @@ stateDiagram-v2
 
 **Concurrency mechanism: status-conditional update (CAS) under READ COMMITTED**, backed by partial unique indexes (one pending, one succeeded attempt per invoice). `FOR UPDATE` held across the PSP call would pin a lock and a pooled connection to a 30 s dependency; advisory locks live outside the data and leak easily; SERIALIZABLE adds retry loops for what a single-row CAS already solves.
 
-**(a) Two concurrent `/pay` calls.** Both UPDATEs target the same row. The second blocks on the row lock, re-checks `status = 'open'` against the committed row after the first commits, and matches nothing. It gets `409 payment_in_progress` and never reaches the PSP. That 409 is *not* stored against its idempotency key, because it's temporary; the same request can be retried after the first attempt settles. If both calls share one key, the second blocks on the `idempotency_keys` primary key instead, then sees the reservation. It returns `202` with the in-flight attempt, or replays the first response if that one has settled. `tests/payments_concurrency.rs` fires 25 requests at once and asserts one PSP charge and one succeeded attempt.
+**(a) Two concurrent `/pay` calls.** The second UPDATE blocks on the row lock, re-checks `status = 'open'` once the first commits, and matches nothing: `409 payment_in_progress`, no PSP call. That 409 is not stored against its key, since it's temporary. With a shared key, the second blocks on the `idempotency_keys` primary key instead and gets `202` (or the replay, if settled). `tests/payments_concurrency.rs` fires 25 requests and asserts one charge.
 
 **(b) PSP timeout.** After 3 s the endpoint returns `202`:
 - `payment_attempt.status = "pending"`
 - `invoice.status = "processing"`
 
-We don't know whether money moved, so we claim neither. After `PSP_TIMEOUT_MS + 1s` the reconciler calls `GET /v1/charges/{attempt_id}` (backoff 1 s doubling to 60 s; error log after 40 checks) and settles through the same `settle_attempt` as the request path. The caller learns the result from the `invoice.paid` / `invoice.payment_failed` webhook, `GET /invoices/{id}`, or by retrying with the same key (202 while pending, then a replay of the final response).
+We don't know whether money moved, so we claim neither. The reconciler calls `GET /v1/charges/{attempt_id}` (backoff 1 s doubling to 60 s) and settles through the same `settle_attempt` as the request path. The caller learns the result from the webhook, `GET /invoices/{id}`, or by retrying with the same key.
 
 If the PSP still has no record 30 s after the attempt was created, longer than any request we could have in flight, the attempt fails with `psp_no_record` and the invoice returns to `open`. `tok_network_error` takes exactly this path.
 
@@ -99,19 +99,19 @@ If the PSP still has no record 30 s after the attempt was created, longer than a
 
 ## 4. Webhook design
 
-- **Decoupled through a transactional outbox.** The state change, the `events` row and one `webhook_deliveries` row per active endpoint commit in the same transaction. The API never makes an HTTP call to a receiver. A dispatcher task polls due rows every 500 ms. It leases each batch by pushing `next_attempt_at` 60 s ahead, then sends the batch concurrently with a 10 s timeout and no redirects.
+- **Decoupled through a transactional outbox.** The state change, the `events` row and one `webhook_deliveries` row per active endpoint commit together; the API never calls a receiver. A dispatcher polls every 500 ms, leases due rows for 60 s, and sends them concurrently (10 s timeout, no redirects).
 - **Signing.** `Dodo-Signature: t=<unix>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>`, with a per-endpoint `whsec_` secret.
   - Binding `t` into the MAC is the replay protection: receivers reject anything older than 5 minutes, and `t` can't be changed without the secret.
   - The payload is re-signed on every attempt, so retries stay inside that window.
   - `Dodo-Event-Id` lets receivers dedupe, since delivery is at-least-once.
 - **Retries.** Retry delays are 30 s, 2 m, 10 m, 30 m, 1 h, 2 h and 4 h, each ±10% jitter, for 8 attempts over about 7 h 42 m. Any non-2xx or transport error counts as a failure.
 - **Exhausted.** The row is marked `exhausted`, kept, and logged at error level. Disabling an endpoint marks its pending deliveries `cancelled`.
-- **Reconciliation.** `GET /v1/events?after=<last_event_id>` returns the log in the same body shape as the webhook, and a business replays from its last checkpoint. It is ordered by `seq`, not the UUIDv7 id: ids are taken before commit, so a late-committing transaction could otherwise land *behind* a checkpoint and be skipped forever. `events::record` locks the business row (`FOR NO KEY UPDATE`) until commit, so `seq` order is commit order.
+- **Reconciliation.** `GET /v1/events?after=<last_event_id>` replays the log in webhook shape. It is ordered by `seq`, not the UUIDv7 id: ids are taken before commit, so a late commit could land behind a consumer's checkpoint and be skipped. `seq` is assigned under a business-row lock held to commit, so its order is commit order.
 
 ## 5. API key model
 
 - **Generation:** `sk_` plus base64url of 32 bytes from the OS CSPRNG.
-- **Storage:** only the SHA-256 of the key. A slow hash buys nothing against 256 random bits, and hashing lets us look the key up by its hash, so no secret-dependent comparison runs in our code. The first 11 characters are kept as a `display_prefix` for dashboards and leak scanners.
+- **Storage:** only the SHA-256. A slow hash buys nothing against 256 random bits, and lookup by hash means no secret-dependent comparison in our code. The first 11 characters are kept as `display_prefix`.
 - **Transmission:** `Authorization: Bearer`. The plaintext is returned exactly once, at creation.
 - **Rotation:** several keys can be live; create, deploy, revoke the old one. Revoking the last active key is refused (`409 last_active_key`), since only an operator could issue a new one.
 - **Revocation:** immediate (auth reads `revoked_at` on every request, no cache). Unknown and revoked keys get the same 401.
@@ -124,7 +124,7 @@ If the PSP still has no record 30 s after the attempt was created, longer than a
 2. **Refunds and partial payments.** These need a ledger against an invoice balance, not a status field; `payment_attempts` is where it would attach.
 3. **Scoped API keys.** Every key is full-access today.
 4. **Idempotency-key expiry.** Keys are kept forever. Production would purge them after 24 h to 7 d.
-5. **Webhook secret rotation and SSRF protection.** Verification already accepts several `v1` signatures, to support rotation. Blocking private IP ranges would break the Docker demo's `http://webhook-sink` receiver, so it has to be a per-environment setting.
+5. **Webhook secret rotation and SSRF protection.** Verification already accepts several `v1` signatures. Blocking private IPs would break the Docker demo's receiver, so it needs a per-environment setting.
 
 ## 7. Production readiness gap
 

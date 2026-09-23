@@ -174,7 +174,7 @@ The three tests the assignment requires, none skipped:
 | Same key retried: same response, no second PSP call | `invoicing/tests/payments_idempotency.rs`, which also covers declined replays, key reuse with a different body, and paying a paid invoice |
 | PSP failure leaves no stuck invoice | `invoicing/tests/payments_psp_failures.rs`: `tok_timeout` returns `202` in under 1 s and settles to `paid`; `tok_network_error` settles back to `open` and can be paid again |
 
-`invoicing/tests/webhooks.rs` verifies webhook signatures and retry scheduling, and `invoicing/tests/api_keys.rs` covers key rotation and revocation. The PSP-failure tests shorten the mock's 30 s delay to 2 s, so they take seconds rather than minutes; the code path is the same.
+Beyond those: `webhooks.rs` (signatures, retry scheduling, duplicate endpoints), `api_keys.rs` (rotation and revocation), `events.rs` (the event feed never skips a late-committing event), and `validation.rs` (bad input is a 4xx, never a 500). The PSP-failure tests shorten the mock's 30 s delay to 2 s, so they take seconds rather than minutes; the code path is the same.
 
 ## Configuration
 
@@ -189,6 +189,8 @@ The three tests the assignment requires, none skipped:
 | `WEBHOOK_TIMEOUT_MS` | `10000` | Per delivery attempt. Must be under 60000. |
 | `WORKER_POLL_INTERVAL_MS` | `500` | Reconciler and webhook dispatcher poll interval |
 | `RUST_LOG` | `info,sqlx=warn` | |
+
+The service refuses to start if any timeout or the poll interval is zero.
 
 ## Layout
 
