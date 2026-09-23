@@ -1,3 +1,5 @@
+name: dodo-invoicing
+
 # The three app containers share one image; each runs a different binary.
 x-app: &app
   build: .
